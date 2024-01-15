@@ -16,10 +16,12 @@ import '@tensorflow/tfjs-backend-cpu'
 import '@tensorflow/tfjs-backend-webgl'
 import { DetectedObject, ObjectDetection } from '@tensorflow-models/coco-ssd'
 import { drawnOnCanvas } from '@/utils/draw'
+import SocialMediaLinks from '@/components/social-media'
 
 type Props = {}
 
 let interval: any = null;
+let stopTimeout: any = null;
 const HomePage = (props: Props) => {
 
   const webcamRef = useRef<Webcam>(null)
@@ -32,6 +34,39 @@ const HomePage = (props: Props) => {
   const [model, setModel] = useState<ObjectDetection>()
   const [loading, setLoading] = useState(false);
   
+  const mediaRecorderRef = useRef<MediaRecorder | null >(null)
+  
+  useEffect(()=>{
+    if(webcamRef && webcamRef.current){
+        const stream = (webcamRef.current.video as any).captureStream();
+
+        if(stream){
+          mediaRecorderRef.current = new MediaRecorder(stream)
+
+          mediaRecorderRef.current.ondataavailable = (e) =>{
+            if(e.data.size > 0){
+              const recordedBlob = new Blob([e.data], {type: 'video'});
+              const videoURL = URL.createObjectURL(recordedBlob);
+
+
+              const a = document.createElement('a');
+              a.href = videoURL;
+
+              a.download = `${formatDate(new Date())}.webm`;
+              a.click();
+            }
+          }
+
+          mediaRecorderRef.current.onstart = (e) =>{
+            setIsRecording(true);
+          }
+
+          mediaRecorderRef.current.onstop = (e)=>{
+            setIsRecording(false);
+          }
+        }
+    }
+  }, [webcamRef])
   useEffect(()=>{
     setLoading(true);
      initModel();
@@ -60,12 +95,13 @@ const HomePage = (props: Props) => {
         runPrediction();
      },100);
 
-     return ()=> clearInterval(interval);
-  }, [webcamRef.current, model, mirrored])
+     return ()=> clearInterval(interval); 
+  }, [webcamRef.current, model, mirrored, autoRecordEnabled])
 
   async function runPrediction(){
     if(
-      model && webcamRef.current
+      model
+       && webcamRef.current
       && webcamRef.current.video?.readyState === 4
     ){
       const predictions: DetectedObject[] =await model.detect(webcamRef.current.video)
@@ -73,10 +109,33 @@ const HomePage = (props: Props) => {
       resizeCanvas(canvasRef, webcamRef);
       drawnOnCanvas(mirrored, predictions, canvasRef.current?.getContext('2d'));
       
+      let isPerson: boolean=false;
+      if(predictions.length>0){
+        predictions.forEach((prediction)=>{
+          isPerson = prediction.class === 'person';
+        })
+      }
+
+      if(isPerson && autoRecordEnabled){
+        startRecording(true );
+      }
     }
   }
   const userPromptScreenshot = ()=>{
+    if(!webcamRef.current){
+      toast('Camera not found. please refresh')
+    }
+    else{
+      const imgSrc = webcamRef.current.getScreenshot();
+      console.log(imgSrc);
+      const blob = convertBase64ToBlob(imgSrc);
 
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download= `${formatDate(new Date())}.png`
+      a.click();
+    }
   }
 
   const userPromptScreenrecorder = ()=>{
@@ -84,9 +143,36 @@ const HomePage = (props: Props) => {
   }
 
   const userPromptRecord = ()=>{
+    if(!webcamRef.current){
+      toast('camera not found. Please refresh.')
+    }
 
+    if(mediaRecorderRef.current?.state == 'recording'){
+      mediaRecorderRef.current.requestData();
+      clearTimeout(stopTimeout);
+      mediaRecorderRef.current.stop();
+      toast('Recording saved to downloads')
+
+    }else{
+      startRecording(false);
+    }
   }
 
+
+  function startRecording(doBeep: boolean){
+    if(webcamRef.current && mediaRecorderRef.current?.state !== 'recording'){
+      toast("Recoding started")
+      mediaRecorderRef.current?.start();
+      doBeep && beep(volume);
+      
+      stopTimeout =  setTimeout(() => {
+        if(mediaRecorderRef.current?.state === 'recording'){
+          mediaRecorderRef.current.requestData();
+          mediaRecorderRef.current.stop();
+        }
+      }, 30000);
+    }
+  }
   
 
   const toggleAutoRecord = ()=>{
@@ -179,7 +265,7 @@ const HomePage = (props: Props) => {
         <Separator />
         <li className="space-y-4">
           <strong>Share your thoughts 💬 </strong>
-          {/* <SocialMediaLinks/> */}
+          <SocialMediaLinks/>
           <br />
           <br />
           <br />
@@ -232,7 +318,9 @@ const HomePage = (props: Props) => {
                   <Camera/>
                 </Button>
 
-                <Button variant={isRecording? 'destructive' : 'outline'} size={'icon'}>
+                <Button variant={isRecording? 'destructive' : 'outline'} size={'icon'}
+                onClick={userPromptRecord}
+                >
                   <Video/>
                 </Button>
               <Separator className='my-2'/>
@@ -287,4 +375,39 @@ function resizeCanvas(canvasRef: React.RefObject<HTMLCanvasElement>, webcamRef: 
     canvas.width = videoWidth;
     canvas.height = videoHeight;
   }
+}
+
+
+function formatDate(d: Date){
+  const formattedDate = 
+  [
+     (d.getMonth() +1).toString().padStart(2, "0"),
+     d.getDate().toString().padStart(2, "0"),
+     d.getFullYear(),
+  ]
+  .join("-") +
+  " " +
+  [
+    d.getHours().toString().padStart(2, "0"),
+    d.getMinutes().toString().padStart(2, "0"),
+    d.getSeconds().toString().padStart(2, "0"),
+  ]
+
+  return formattedDate;
+}
+
+function convertBase64ToBlob(base64Image: any) {
+  const decodedData = window.atob(base64Image.split(",")[1]);
+  
+
+  // Create UNIT8ARRAY of size same as row data length
+  const arrayBuffer = new ArrayBuffer(decodedData.length);
+  const byteArray = new Uint8Array(arrayBuffer);
+  // Insert all character code into uInt8Array
+  for (let i = 0; i < decodedData.length; ++i) {
+    byteArray[i] = decodedData.charCodeAt(i);
+  }
+
+  // Return BLOB image after conversion
+  return new Blob([arrayBuffer], { type: "image/png" });
 }
