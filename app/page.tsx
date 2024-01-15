@@ -238,7 +238,7 @@ const HomePage = (props: Props) => {
           <strong>Enable/Disable Auto Record 🚫</strong>
           <p>
             Option to enable/disable automatic video recording whenever
-            required.
+            camera detects human.
           </p>
           <Button className='h-6 w-6 my-2'
             variant={autoRecordEnabled ? 'destructive' : 'outline'}
